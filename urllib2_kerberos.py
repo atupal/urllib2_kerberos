@@ -24,6 +24,7 @@ import urllib2 as u2
 
 import kerberos as k
 
+
 def getLogger():
     log = logging.getLogger("http_kerberos_auth_handler")
     handler = logging.StreamHandler()
@@ -33,18 +34,22 @@ def getLogger():
     return log
 
 log = getLogger()
+log.setLevel(logging.DEBUG)
+
 
 class AbstractKerberosAuthHandler:
-    """auth handler for urllib2 that does Kerberos HTTP Negotiate Authentication
+    """auth handler for urllib2 that does Kerberos HTTP Negotiate
+    Authentication
     """
 
     def negotiate_value(self, headers):
         """checks for "Negotiate" in proper auth header
         """
         authreq = headers.get(self.auth_header, None)
+        log.debug('authreq = {}'.format(authreq))
 
         if authreq:
-            rx = re.compile('(?:.*,)*\s*Negotiate\s*([^,]*),?', re.I)
+            rx = re.compile(r'(?:.*,)*\s*Negotiate\s*([^,]*),?', re.I)
             mo = rx.search(authreq)
             if mo:
                 return mo.group(1)
@@ -68,7 +73,7 @@ class AbstractKerberosAuthHandler:
         log.debug("req.get_host() returned %s" % host)
 
         domain = host.rsplit(':', 1)[0]
-                
+
         result, self.context = k.authGSSClientInit("HTTP@%s" % domain)
 
         if result < 1:
@@ -87,7 +92,7 @@ class AbstractKerberosAuthHandler:
 
         response = k.authGSSClientResponse(self.context)
         log.debug("authGSSClientResponse() succeeded")
-        
+
         return "Negotiate %s" % response
 
     def authenticate_server(self, headers):
@@ -98,11 +103,12 @@ class AbstractKerberosAuthHandler:
 
         result = k.authGSSClientStep(self.context, neg_value)
 
-        if  result < 1:
+        if result < 1:
             # this is a critical security warning
             # should change to a raise --Tim
-            log.critical("mutual auth failed: authGSSClientStep returned result %d" % result)
-            pass
+            log.critical(
+                "mutual auth failed: authGSSClientStep returned result %d" %
+                result)
 
     def clean_context(self):
         if self.context is not None:
@@ -111,7 +117,7 @@ class AbstractKerberosAuthHandler:
             self.context = None
 
     def http_error_auth_reqed(self, host, req, headers):
-        neg_value = self.negotiate_value(headers) #Check for auth_header
+        neg_value = self.negotiate_value(headers)  # Check for auth_header
         if neg_value is not None:
             if not self.retried > 0:
                 return self.retry_http_kerberos_auth(req, headers, neg_value)
@@ -131,7 +137,8 @@ class AbstractKerberosAuthHandler:
             req.add_unredirected_header(self.authz_header, neg_hdr)
             resp = self.parent.open(req)
 
-            self.authenticate_server(resp.info())
+            if resp.getcode() != 200:
+                self.authenticate_server(resp.info())
 
             return resp
 
@@ -144,6 +151,7 @@ class AbstractKerberosAuthHandler:
         self.clean_context()
         self.retried = 0
 
+
 class ProxyKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
     """Kerberos Negotiation handler for HTTP proxy auth
     """
@@ -151,7 +159,7 @@ class ProxyKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
     authz_header = 'Proxy-Authorization'
     auth_header = 'proxy-authenticate'
 
-    handler_order = 480 # before Digest auth
+    handler_order = 480  # before Digest auth
 
     def http_error_407(self, req, fp, code, msg, headers):
         log.debug("inside http_error_407")
@@ -160,6 +168,7 @@ class ProxyKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
         self.retried = 0
         return retry
 
+
 class HTTPKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
     """Kerberos Negotiation handler for HTTP auth
     """
@@ -167,7 +176,7 @@ class HTTPKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
     authz_header = 'Authorization'
     auth_header = 'www-authenticate'
 
-    handler_order = 480 # before Digest auth
+    handler_order = 480  # before Digest auth
 
     def http_error_401(self, req, fp, code, msg, headers):
         log.debug("inside http_error_401")
@@ -176,6 +185,7 @@ class HTTPKerberosAuthHandler(u2.BaseHandler, AbstractKerberosAuthHandler):
         self.retried = 0
         return retry
 
+
 def test():
     log.setLevel(logging.DEBUG)
     log.info("starting test")
@@ -183,8 +193,7 @@ def test():
     opener.add_handler(HTTPKerberosAuthHandler())
     resp = opener.open(sys.argv[1])
     print dir(resp), resp.info(), resp.code
-    
+
 
 if __name__ == '__main__':
     test()
-
